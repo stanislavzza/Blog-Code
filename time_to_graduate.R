@@ -29,11 +29,39 @@ grad_time <- rbind( get_grad_time(idbc,"gr2019"),
                        GradTime = weighted.mean(GradTime, Cohort)) %>% 
              mutate(CareerLag = (Grad4*3.75 + Grad5*4.75 + Grad6*5.75 + (1-Grad4-Grad5-Grad6)*nongrad_career_lag))
 
+
+# Graduation Trajectories
+grad_time %>% 
+  mutate(`4`   = Grad4,
+         `5` = Grad4 + Grad5, # cummulative totals
+         `6` = Grad4 + Grad5 + Grad6,
+         Quintile = reorder(as.factor(ntile(Grad4,5)), -Grad4)) %>% 
+  select(-GradTime, -CareerLag) %>% 
+  gather(Years, Rate, -UNITID, -Quintile) %>% 
+  mutate(Years = as.integer(Years)) %>% 
+  group_by(Quintile, Years) %>% 
+  summarize(Rate = mean(Rate),
+            SE   = sd(Rate)/sqrt(n()),
+            Label = paste0(round(Rate*100),"%")) %>% 
+  ggplot(aes(x = Years, y = Rate, label = Label,
+             ymin = Rate - 2*SE, ymax = Rate + 2*SE, 
+             group = Quintile, color = Quintile)) +
+  geom_line(size = 1) +
+    geom_label() +
+  geom_errorbar(width = 0) +
+  theme_bw() +
+  scale_y_continuous(labels = scales::percent) +
+  xlab("Time to Graduation") +
+  ylab("Cumulative Rate") +
+  guides(color = guide_legend(order = 1), 
+         size = "none")
+
+
 # can we estimate GradTime from four year rate?
 m1 <- lm(GradTime ~ poly(Grad4,3), grad_time)
 summary(m1) # R2 = .81
 
-# create a nice graph with interpolant
+# Style set up to call out instutitons as examples
 custom_colors <- c("St. John's College" = "orange", 
                    "Youngstown State U" = "red", 
                    "Other"              = "#99999988")
@@ -42,6 +70,7 @@ custom_sizes  <- c("St. John's College" = 3,
                    "Youngstown State U" = 3, 
                    "Other"              = 1)
 
+# create a nice graph with interpolant
 grad_time %>% 
   mutate(Institution = case_when(
     UNITID == 163976 ~ "St. John's College",
