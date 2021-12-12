@@ -1,0 +1,82 @@
+library(tidyverse)
+
+# courses must have StudentID, SectionID, GradeLetter
+# this version assumes A+ exists
+
+df <- courses %>% 
+  mutate(Grade = ifelse(GradeLetter == "A+", "+", 
+                        substr(GradeLetter,1,1))) %>% 
+  filter(Grade %in% c("+", "A","B","C","D","F"),
+         Credits == 4) 
+
+
+# make a matrix with each row a student and columns A - D
+studs <- df %>% 
+  count(StudentID, Grade, name = "p") %>% 
+  group_by(StudentID) %>% 
+  mutate(p = p/sum(p)) %>% 
+  ungroup() %>% 
+  spread(Grade, p, fill = 0) 
+
+# do the same for the sections taken
+sections <- df %>% 
+  count(SectionID, Grade, name = "N") %>% 
+  group_by(SectionID) %>% 
+  ungroup() 
+
+# create student-section counts
+grades <- df %>% 
+  select(StudentID, SectionID) %>% 
+  distinct() %>% 
+  left_join(sections) %>% 
+  group_by(StudentID, S = Grade) %>% 
+  summarize(N = sum(N)) %>% 
+  mutate(N = N/sum(N)) %>% 
+  ungroup() %>% 
+  spread(S, N, fill = 0, sep = "_") %>% 
+  left_join(studs)
+
+stud_grades <- as.matrix(grades %>% select("+",A,B,C,D,F))
+crs_grades  <- as.matrix(grades %>% select("S_+",S_A,S_B,S_C,S_D,S_F))
+
+get_sqr_err <- function(wt_short = c(4,3,2,1,0)){
+  
+  wt <- c(4, wt_short)
+  
+  x_sigmoid <- data.frame(
+    z = scale(stud_grades %*% wt - crs_grades %*% wt) %>% sort()
+  ) %>% 
+    mutate(p = (1:n())/n() * pnorm(max(z)),
+           Normal = pnorm(z),
+           SqErr  = (p-Normal)^2) 
+  
+  return(sum(x_sigmoid$SqErr))
+}
+
+best <- optim(c(3.5,3,2.5,2,1), get_sqr_err, lower = 0, upper = 4, method = "L-BFGS-B")
+
+wt <- c(4, best$par)
+distro_plus <- get_distro(stud_grades,crs_grades, wt)
+
+# Q-Q plot
+distro_plus %>% 
+  ggplot(aes(x = Normal, y = p)) +
+  geom_line(size = 1, color = "steelblue") +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  theme_bw()
+
+# scale depiction
+scale_plus <- data.frame(
+  Grade = c("A+","A","B","C","D","F"),
+  Int   = c(5,4,3,2,1,0),
+  weight = wt)
+
+scale_plus %>% 
+  ggplot(aes(x = Int, xend = Int, yend = Int, y = weight, label = Grade )) +
+  geom_abline(intercept = 0, slope = 1, size = 1, color = "black") +
+  geom_segment() +
+  geom_smooth(method = "lm", se = FALSE) +
+  geom_label() +
+  theme_bw() +
+  xlim(0,5) +
+  ylim(0,5)
