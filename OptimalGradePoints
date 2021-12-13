@@ -39,9 +39,23 @@ grades <- df %>%
 stud_grades <- as.matrix(grades %>% select("+",A,B,C,D,F))
 crs_grades  <- as.matrix(grades %>% select("S_+",S_A,S_B,S_C,S_D,S_F))
 
-get_sqr_err <- function(wt_short = c(4,3,2,1,0)){
+# function to compute the empirical distribution, for plotting 
+get_distro <- function(stud_grades, crs_grades, wt){
   
-  wt <- c(4, wt_short)
+  x_sigmoid <- data.frame(
+    z = scale(stud_grades %*% wt - crs_grades %*% wt) %>% sort()
+    ) %>% 
+      mutate(p = (1:n())/n() * pnorm(max(z)),
+           Normal = pnorm(z),
+           SqErr  = (p-Normal)^2)
+
+  return(x_sigmoid)
+}
+
+# loss function for comparing empirical distribution to the ideal normal cumulative distribution
+get_sqr_err <- function(wt_short = c(4,3,2,1)){
+  
+  wt <- c(4, wt_short,0)
   
   x_sigmoid <- data.frame(
     z = scale(stud_grades %*% wt - crs_grades %*% wt) %>% sort()
@@ -53,9 +67,10 @@ get_sqr_err <- function(wt_short = c(4,3,2,1,0)){
   return(sum(x_sigmoid$SqErr))
 }
 
-best <- optim(c(3.5,3,2.5,2,1), get_sqr_err, lower = 0, upper = 4, method = "L-BFGS-B")
+# use R's built-in optim function to do the gradient-descent
+best <- optim(rep(3,4), get_sqr_err, lower = 0, upper = 4, method = "L-BFGS-B")
 
-wt <- c(4, best$par)
+wt <- c(4, best$par, 0) # weights are pinned at F = 0, A+ = 4, with intermediate values estimated
 distro_plus <- get_distro(stud_grades,crs_grades, wt)
 
 # Q-Q plot
@@ -69,14 +84,15 @@ distro_plus %>%
 scale_plus <- data.frame(
   Grade = c("A+","A","B","C","D","F"),
   Int   = c(5,4,3,2,1,0),
-  weight = wt)
+  weight = c(4, best1$par,0)) %>% 
+  mutate(Grade = paste0(Grade,"=",round(weight,1)))
 
 scale_plus %>% 
   ggplot(aes(x = Int, xend = Int, yend = Int, y = weight, label = Grade )) +
   geom_abline(intercept = 0, slope = 1, size = 1, color = "black") +
   geom_segment() +
-  geom_smooth(method = "lm", se = FALSE) +
+ # geom_smooth(method = "lm", se = FALSE) +
   geom_label() +
   theme_bw() +
   xlim(0,5) +
-  ylim(0,5)
+  ylim(0,5) 
